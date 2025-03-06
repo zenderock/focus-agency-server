@@ -20,6 +20,7 @@ def index():
             return 'Aucun fichier vidéo envoyé'
 
         file = request.files['video']
+        app.logger.info('Fichier reçu: %s, type: %s', file.filename, file.content_type)
         user_id = request.form.get('user_id') # Récupérer l'ID utilisateur depuis le formulaire
 
         if file.filename == '':
