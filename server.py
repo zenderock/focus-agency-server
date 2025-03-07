@@ -20,7 +20,10 @@ def make_celery(app):
         backend='redis://localhost:6379/0',
         broker='redis://localhost:6379/0'
     )
-    celery.conf.update(app.config)
+    celery.conf.update(
+        app.config,
+        broker_connection_retry_on_startup=True  
+    )
     return celery
 
 celery = make_celery(app)
