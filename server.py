@@ -74,7 +74,7 @@ def upload_video():
         ]
         try:
             subprocess.run(cmd, check=True)  
-            # os.remove(input_path)
+            os.remove(input_path)
             return {'message': 'Vidéo convertie en HLS', 'hls_path': output_path}, 200
         except subprocess.CalledProcessError as e:
             abort(500, description=f"Erreur lors de la conversion : {e}")
