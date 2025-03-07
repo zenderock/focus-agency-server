@@ -116,6 +116,15 @@ def serve_hls_playlist(video_id):
         return send_file(playlist_path, mimetype='application/x-mpegURL')
     return jsonify({'message': 'Conversion en cours ou échouée'}), 404
 
+
+@app.route('/videos/<video_id>/<filename>')
+def serve_hls_video(video_id, filename):
+    hls_dir = os.path.join(HLS_FOLDER, video_id)
+    video_path = os.path.join(hls_dir, filename)
+    if os.path.exists(video_path):
+        return send_file(video_path)
+    return jsonify({'message': 'Fichier non trouvée'}), 404
+
 if __name__ == '__main__':
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(HLS_FOLDER, exist_ok=True)
