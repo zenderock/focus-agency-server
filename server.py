@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, send_file
 from flask_cors import CORS
 import os
 from werkzeug.utils import secure_filename
@@ -37,12 +37,14 @@ def index():
     return render_template('index.html', os=os)
 
 @app.route('/videos/<user_id>/<filename>')
-def serve_video(user_id, filename): 
-    if 'X-Focus' not in request.headers or request.headers['X-Focus'] != 'stream_allowed':
-        abort(403) 
-
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id) 
-    return send_from_directory(user_folder, filename) 
+def serve_video(user_id, filename):
+    if request.args.get('token') != 'stream_allowed': 
+        abort(403)
+        
+    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+    file_path = os.path.join(user_folder, filename)
+    
+    return send_file(file_path, conditional=True)
 
 if __name__ == '__main__':
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
