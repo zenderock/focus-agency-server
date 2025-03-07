@@ -74,7 +74,7 @@ def index():
             return redirect(url_for('index'))
     return render_template('index.html', os=os)
 
-@app.route('/videos/<user_id>/<filename>')
+@app.route('/videos-user/<user_id>/<filename>')
 def serve_video(user_id, filename):
     if request.args.get('token') != 'stream_allowed': 
         abort(403)
