@@ -94,22 +94,21 @@ def token_required(f):
 @celery.task
 def convert_to_hls(input_path: str, hls_dir: str, encryption_key=None):
     output_path = os.path.join(hls_dir, 'output.m3u8')
-    
-    # Generate encryption key if not provided
-    if not encryption_key:
-        encryption_key = os.urandom(16).hex()
-        
-    # Save the key to a file
     key_path = os.path.join(hls_dir, 'enc.key')
-    with open(key_path, 'w') as f:
-        f.write(encryption_key)
-        
-    # Create key info file
     key_info_path = os.path.join(hls_dir, 'enc.keyinfo')
-    with open(key_info_path, 'w') as f:
-        f.write(f'{key_path}\n')  # Path to the key file
-        f.write(f'{key_path}\n')  # Path where to store the key on the server
-        f.write(encryption_key)   # IV (same as the key in this example)
+    
+    if encryption_key is None:
+        encryption_key = os.urandom(16)
+    with open(key_path, 'wb') as key_file:
+        key_file.write(encryption_key)
+    
+    # URL absolue pour la clé
+    user_id = hls_dir.split(os.sep)[-2]  # Extrait user_id de hls_dir
+    video_id = hls_dir.split(os.sep)[-1]  # Extrait video_id de hls_dir
+    key_url = f"https://server.focustagency.com/hls/{user_id}/{video_id}/enc.key"
+    
+    with open(key_info_path, 'w') as key_info_file:
+        key_info_file.write(f"{key_url}\n{key_path}\n")
     
     cmd = [
         'ffmpeg',
@@ -122,16 +121,11 @@ def convert_to_hls(input_path: str, hls_dir: str, encryption_key=None):
         '-hls_segment_filename', os.path.join(hls_dir, 'segment_%03d.ts'),
         output_path
     ]
-    
     try:
         subprocess.run(cmd, check=True)
-        # Optionally delete original file after conversion
-        # os.remove(input_path)
-        return {'status': 'success', 'key': encryption_key}
+        os.remove(input_path)
     except subprocess.CalledProcessError as e:
-        print(f"Error during conversion: {e}")
-        return {'status': 'error', 'message': str(e)}
-
+        app.logger.error(f"Erreur FFmpeg: {e}")
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
