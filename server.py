@@ -14,7 +14,10 @@ from functools import wraps
 import re
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://focustagency.com"}})
+CORS(app, resources={r"/*": {"origins": [
+    "https://focustagency.com",
+    "https://*.focustagency.com"
+]}})
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
