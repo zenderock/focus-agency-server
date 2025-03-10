@@ -2,32 +2,11 @@
 <html>
 
 <head>
-    <title>Serveur Vidéo</title>
+    <title>Focus Agency</title>
 </head>
 
 <body>
-    <h1>Upload de Vidéo</h1>
-    <form method="POST" enctype="multipart/form-data">
-        <label for="user_id">ID Utilisateur:</label>
-        <input type="text" id="user_id" name="user_id" required><br><br> <input type="file" name="video"
-            accept="video/*">
-        <input type="submit" value="Upload">
-    </form>
-
-    <h2>Vidéos Uploadées</h2>
-    <ul>
-        {% for user_id_folder in os.listdir('uploads/') %}
-        {% if os.path.isdir(os.path.join('uploads/', user_id_folder)) %} <h3>Utilisateur ID: {{ user_id_folder }}</h3>
-        <ul>
-            {% for filename in os.listdir('uploads/' + user_id_folder) %}
-            <li>
-                <a href="{{ url_for('serve_video', user_id=user_id_folder, filename=filename) }}">{{ filename }}</a>
-            </li>
-            {% endfor %}
-        </ul>
-        {% endif %}
-        {% endfor %}
-    </ul>
+    <h1>Focus Agency</h1>
 </body>
 
 </html>

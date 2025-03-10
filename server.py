@@ -136,32 +136,39 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/', methods=['POST'])
-def index():
-    if request.method == 'POST':
-        if 'video' not in request.files:
-            return 'No video file sent'
-        file = request.files['video']
-        app.logger.info('File received: %s, type: %s', file.filename, file.content_type)
-        user_id = request.form.get('user_id') 
-        if file.filename == '':
-            return 'No file selected'
-        if not user_id:
-            return 'User ID missing'
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
-            os.makedirs(user_folder, exist_ok=True) 
-            file_path = os.path.join(user_folder, filename) 
-            file.save(file_path) 
-            
-            # Start HLS conversion with encryption
-            hls_dir = os.path.join(HLS_FOLDER, user_id, filename.split('.')[0])
-            os.makedirs(hls_dir, exist_ok=True)
-            task = convert_to_hls.delay(file_path, hls_dir)
-            
-            return redirect(url_for('index'))
-    return render_template('index.html', os=os)
+@app.route('/upload', methods=['POST'])
+def upload_video():
+    if 'video' not in request.files:
+        return jsonify({'message': 'Aucune vidéo uploadée'}), 400
+    file = request.files['video']
+    app.logger.info('Fichier reçu: %s, type: %s', file.filename, file.content_type)
+    user_id = request.form.get('user_id')
+    if file.filename == '':
+        return jsonify({'message': 'Aucun fichier sélectionné'}), 400
+    if not user_id:
+        return jsonify({'message': 'ID Utilisateur manquant'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+        os.makedirs(user_folder, exist_ok=True)
+        file_path = os.path.join(user_folder, filename)
+        file.save(file_path)
+
+        # Définir le dossier HLS
+        video_id = filename.split('.')[0]  # Utiliser le nom du fichier sans extension comme video_id
+        hls_dir = os.path.join(HLS_FOLDER, user_id, video_id)
+        os.makedirs(hls_dir, exist_ok=True)
+        
+        # Lancer la tâche asynchrone
+        task = convert_to_hls.delay(file_path, hls_dir)
+
+        # Renvoyer une réponse JSON
+        return jsonify({
+            'message': 'Conversion en cours',
+            'task_id': task.id,
+            'hls_path': f"/hls/{user_id}/{video_id}/output.m3u8"
+        }), 202
+
 
 # Generate a short-lived token for video access
 def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY):
