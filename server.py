@@ -16,7 +16,8 @@ import re
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
     "https://focustagency.com",
-    "https://*.focustagency.com"
+    "https://trainer.focustagency.com",
+    "https://learner.focustagency.com"
 ]}})
 
 # Configuration
@@ -65,7 +66,19 @@ def token_required(f):
                 
             # Check referrer
             if request.referrer:
-                if not re.match(r'https://focustagency\.com', request.referrer):
+                allowed_referrers = [
+                    r'https://focustagency\.com',
+                    r'https://trainer\.focustagency\.com',
+                    r'https://learner\.focustagency\.com'
+                ]
+                
+                referrer_allowed = False
+                for pattern in allowed_referrers:
+                    if re.match(pattern, request.referrer):
+                        referrer_allowed = True
+                        break
+                
+                if not referrer_allowed:
                     raise Exception("Invalid referrer")
             else:
                 # Optional: Block requests with no referrer
@@ -169,10 +182,18 @@ def get_video_token(user_id, filename):
     # Generate a short-lived token
     token = generate_video_token(user_id, filename)
     
-    return jsonify({
+    
+    
+    response =  jsonify({
         'token': token,
         'expires_in': TOKEN_EXPIRY
     })
+    
+    response.headers.add('Access-Control-Allow-Origin', 'https://trainer.focustagency.com')
+    response.headers.add('Access-Control-Allow-Methods', 'GET')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    
+    return response
 
 @app.route('/videos-user/<user_id>/<filename>')
 @token_required
