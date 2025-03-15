@@ -178,33 +178,20 @@ def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY):
     }
     return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
 
-@app.route('/api/get-video-token/<user_id>/<filename>', methods=['GET', 'OPTIONS'])
+@app.route('/api/get-video-token/<user_id>/<filename>')
 def get_video_token(user_id, filename):
-    # Récupérer l'origine de la requête
     origin = request.headers.get("Origin")
-    
-    # Vérifier si l'origine est dans la liste des origines autorisées
-    if origin in FOCUST_ALLOWED_ORIGINS:
-        allowed_origin = origin
-    else:
-        allowed_origin = ""  # Refuser la requête si l'origine n'est pas autorisée
-    
-    # Gérer les requêtes OPTIONS (pré-requêtes CORS)
-    if request.method == 'OPTIONS':
-        response = app.make_default_options_response()
-        response.headers.add('Access-Control-Allow-Origin', allowed_origin)
-        response.headers.add('Access-Control-Allow-Methods', 'GET')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-        return response
-    
-    # Logique normale pour GET
+    allowed_origin = origin if origin in FOCUST_ALLOWED_ORIGINS else ""
+    # Generate a short-lived token
     token = generate_video_token(user_id, filename)
-    response = jsonify({
+    
+    
+    
+    response =  jsonify({
         'token': token,
         'expires_in': TOKEN_EXPIRY
     })
     
-    # Ajouter les en-têtes CORS
     response.headers.add('Access-Control-Allow-Origin', allowed_origin)
     response.headers.add('Access-Control-Allow-Methods', 'GET')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
