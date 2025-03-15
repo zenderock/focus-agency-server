@@ -21,7 +21,11 @@ FOCUST_ALLOWED_ORIGINS = [
 ]
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": FOCUST_ALLOWED_ORIGINS}})
+CORS(app, 
+     resources={r"/*": {"origins": FOCUST_ALLOWED_ORIGINS}},
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "OPTIONS"]
+)
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -180,23 +184,17 @@ def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY):
 
 @app.route('/api/get-video-token/<user_id>/<filename>')
 def get_video_token(user_id, filename):
-    origin = request.headers.get("Origin")
-    allowed_origin = origin if origin in FOCUST_ALLOWED_ORIGINS else ""
-    # Generate a short-lived token
+    # Supprimez tout le code relatif aux headers CORS manuels
     token = generate_video_token(user_id, filename)
-    
-    
-    
-    response =  jsonify({
+    return jsonify({
         'token': token,
         'expires_in': TOKEN_EXPIRY
     })
-    
-    response.headers.add('Access-Control-Allow-Origin', allowed_origin)
-    response.headers.add('Access-Control-Allow-Methods', 'GET')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    
-    return response
+
+@app.route('/api/get-video-token/<user_id>/<filename>', methods=['OPTIONS'])
+def preflight(user_id, filename):
+    return jsonify({'message': 'Preflight OK'}), 200
+
 
 @app.route('/videos-user/<user_id>/<filename>')
 @token_required
