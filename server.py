@@ -63,7 +63,8 @@ def token_required(f):
         try:
             # Verify the token
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            
+            print(data)
+            print(kwargs)
             # Check if token is for the correct user and video
             if 'user_id' in kwargs and data.get('user_id') != kwargs['user_id']:
                 raise Exception("Invalid user")
@@ -184,7 +185,6 @@ def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY):
 
 @app.route('/api/get-video-token/<user_id>/<filename>')
 def get_video_token(user_id, filename):
-    # Supprimez tout le code relatif aux headers CORS manuels
     token = generate_video_token(user_id, filename)
     return jsonify({
         'token': token,
