@@ -13,12 +13,15 @@ from celery import Celery
 from functools import wraps
 import re
 
-app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": [
+FOCUST_ALLOWED_ORIGINS = [
     "https://focustagency.com",
     "https://trainer.focustagency.com",
-    "https://learner.focustagency.com"
-]}})
+    "https://learner.focustagency.com",
+    "http://localhost:3000"
+]
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": FOCUST_ALLOWED_ORIGINS}})
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -190,7 +193,7 @@ def get_video_token(user_id, filename):
         'expires_in': TOKEN_EXPIRY
     })
     
-    response.headers.add('Access-Control-Allow-Origin', 'https://trainer.focustagency.com')
+    response.headers.add('Access-Control-Allow-Origin', FOCUST_ALLOWED_ORIGINS)
     response.headers.add('Access-Control-Allow-Methods', 'GET')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
     
