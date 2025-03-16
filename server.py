@@ -12,6 +12,8 @@ from werkzeug.utils import secure_filename
 from celery import Celery
 from functools import wraps
 import re
+from pymesomb.operations import PaymentOperation
+from pymesomb.utils import RandomGenerator
 
 FOCUST_ALLOWED_ORIGINS = [
     "https://focustagency.com",
@@ -36,6 +38,9 @@ TOKEN_EXPIRY = 3600
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 app.config['SECRET_KEY'] = SECRET_KEY
+app.config['MESOMB_APP_KEY']="914d0452f4c8b7cf06e4c395d1c401012613bcb2"
+app.config['MESOMB_API_KEY']="7a5a5445-76ca-4631-8a2b-307a1561acac"
+app.config['MESOMB_API_SECRET']="642ffb65-912a-402e-adfc-fccb41a1107c"
 
 def make_celery(app):
     celery = Celery(
@@ -266,6 +271,21 @@ def serve_hls_key(user_id, video_id):
     response.headers['Expires'] = '0'
     
     return response
+
+
+@app.route('/payment/collect', methods=['POST'])
+def payment_collect():
+    operation = PaymentOperation(app.config['MESOMB_APP_KEY'], app.config['MESOMB_API_KEY'], app.config['MESOMB_API_SECRET'])
+    response = operation.make_collect({
+    'amount': 100,
+    'service': 'ORANGE',
+    'payer': '237400001019',
+    'date': datetime.now(),
+    'nonce': RandomGenerator.nonce(),
+    'trxID': '1'
+})
+    print(response.is_operation_success())
+    print(response.is_transaction_success())
 
 if __name__ == '__main__':
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
