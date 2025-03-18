@@ -84,7 +84,8 @@ def token_required(f):
                 allowed_referrers = [
                     r'https://focustagency\.com',
                     r'https://trainer\.focustagency\.com',
-                    r'https://learner\.focustagency\.com'
+                    r'https://learner\.focustagency\.com',
+                    r'http://localhost:3000'
                 ]
                 
                 referrer_allowed = False
