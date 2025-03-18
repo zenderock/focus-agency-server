@@ -32,6 +32,8 @@ CORS(app,
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 HLS_FOLDER = 'hls'
+PRESENTATION_VIDEOS_FOLDER = 'presentation_videos'
+
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'wmv', 'flv'}
 SECRET_KEY = 'ntA4{Q6NLb?fRgs|]U^MV.u@d,m44IF(AFLm]-4=P-[gC5<u8_PvwYt-*.+Rgop_[www.zenderock.me]'
 TOKEN_EXPIRY = 3600
@@ -273,21 +275,31 @@ def serve_hls_key(user_id, video_id):
     return response
 
 
-@app.route('/payment/collect', methods=['POST'])
-def payment_collect():
-    operation = PaymentOperation(app.config['MESOMB_APP_KEY'], app.config['MESOMB_API_KEY'], app.config['MESOMB_API_SECRET'])
-    response = operation.make_collect({
-    'amount': 100,
-    'service': 'ORANGE',
-    'payer': '237400001019',
-    'date': datetime.now(),
-    'nonce': RandomGenerator.nonce(),
-    'trxID': '1'
-})
-    print(response.is_operation_success())
-    print(response.is_transaction_success())
+@app.route('/upload_presentation', methods=['POST'])
+def upload_presentation_video():
+    if 'video' not in request.files:
+        return jsonify({'message': 'Aucune vidéo uploadée'}), 400
+    file = request.files['video']
+    app.logger.info('Fichier reçu: %s, type: %s', file.filename, file.content_type)
+    if file.filename == '':
+        return jsonify({'message': 'Aucun fichier sélectionné'}), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(PRESENTATION_VIDEOS_FOLDER, filename)
+        file.save(file_path)
+        return jsonify({'message': 'Vidéo de présentation uploadée avec succès', 'file_path': file_path}), 201
+    else:
+        return jsonify({'message': 'Type de fichier non autorisé'}), 400
+
+@app.route('/presentation_videos/<filename>')
+def serve_presentation_video(filename):
+    file_path = os.path.join(PRESENTATION_VIDEOS_FOLDER, filename)
+    if not os.path.exists(file_path):
+        abort(404)
+    return send_file(file_path, conditional=True)
 
 if __name__ == '__main__':
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(HLS_FOLDER, exist_ok=True)
+    os.makedirs(PRESENTATION_VIDEOS_FOLDER, exist_ok=True)
     app.run(debug=True, host='0.0.0.0', port=5000)
