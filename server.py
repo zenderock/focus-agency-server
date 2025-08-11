@@ -146,6 +146,10 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+@app.route('/upload', methods=['OPTIONS'])
+def upload_preflight():
+    return jsonify({'message': 'Preflight OK'}), 200
+
 @app.route('/upload', methods=['POST'])
 def upload_video():
     if 'video' not in request.files:
