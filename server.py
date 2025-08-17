@@ -154,7 +154,7 @@ def convert_to_hls(input_path: str, hls_dir: str, success_callback_url=None, err
                     'hls_path': f"/hls/{user_id}/{video_id}/output.m3u8",
                     'message': 'Conversion terminée avec succès'
                 }
-                requests.post(success_callback_url, json=payload, timeout=10)
+                requests.post(success_callback_url, json=payload, timeout=10, headers={"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqdHdubmVyaWFqdXBwZXp1cXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAzOTk4NDcsImV4cCI6MjA1NTk3NTg0N30.LvqiUfjsRlXjOUe-s9ODhyh33GskNbeEsoC2TapNC1s"})
             except Exception as callback_error:
                 app.logger.error(f"Erreur callback succès: {callback_error}")
                 
@@ -170,7 +170,7 @@ def convert_to_hls(input_path: str, hls_dir: str, success_callback_url=None, err
                     'error': str(e),
                     'message': 'Échec de la conversion vidéo'
                 }
-                requests.post(error_callback_url, json=payload, timeout=10)
+                requests.post(error_callback_url, json=payload, timeout=10, headers={"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqdHdubmVyaWFqdXBwZXp1cXFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAzOTk4NDcsImV4cCI6MjA1NTk3NTg0N30.LvqiUfjsRlXjOUe-s9ODhyh33GskNbeEsoC2TapNC1s"})
             except Exception as callback_error:
                 app.logger.error(f"Erreur callback échec: {callback_error}")
         
