@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 from celery import Celery
 from functools import wraps
 import re
+import requests
 from pymesomb.operations import PaymentOperation
 from pymesomb.utils import RandomGenerator
 
@@ -108,7 +109,7 @@ def token_required(f):
     return decorated
 
 @celery.task
-def convert_to_hls(input_path: str, hls_dir: str, encryption_key=None):
+def convert_to_hls(input_path: str, hls_dir: str, success_callback_url=None, error_callback_url=None, user_id=None, video_id=None, encryption_key=None):
     output_path = os.path.join(hls_dir, 'output.m3u8')
     key_path = os.path.join(hls_dir, 'enc.key')
     key_info_path = os.path.join(hls_dir, 'enc.keyinfo')
@@ -119,8 +120,10 @@ def convert_to_hls(input_path: str, hls_dir: str, encryption_key=None):
         key_file.write(encryption_key)
     
     # URL absolue pour la clé
-    user_id = hls_dir.split(os.sep)[-2]  # Extrait user_id de hls_dir
-    video_id = hls_dir.split(os.sep)[-1]  # Extrait video_id de hls_dir
+    if not user_id:
+        user_id = hls_dir.split(os.sep)[-2]
+    if not video_id:
+        video_id = hls_dir.split(os.sep)[-1]
     key_url = f"https://server.focustagency.com/hls/{user_id}/{video_id}/enc.key"
     
     with open(key_info_path, 'w') as key_info_file:
@@ -137,11 +140,41 @@ def convert_to_hls(input_path: str, hls_dir: str, encryption_key=None):
         '-hls_segment_filename', os.path.join(hls_dir, 'segment_%03d.ts'),
         output_path
     ]
+    
     try:
         subprocess.run(cmd, check=True)
         os.remove(input_path)
+        
+        if success_callback_url:
+            try:
+                payload = {
+                    'status': 'success',
+                    'user_id': user_id,
+                    'video_id': video_id,
+                    'hls_path': f"/hls/{user_id}/{video_id}/output.m3u8",
+                    'message': 'Conversion terminée avec succès'
+                }
+                requests.post(success_callback_url, json=payload, timeout=10)
+            except Exception as callback_error:
+                app.logger.error(f"Erreur callback succès: {callback_error}")
+                
     except subprocess.CalledProcessError as e:
         app.logger.error(f"Erreur FFmpeg: {e}")
+        
+        if error_callback_url:
+            try:
+                payload = {
+                    'status': 'error',
+                    'user_id': user_id,
+                    'video_id': video_id,
+                    'error': str(e),
+                    'message': 'Échec de la conversion vidéo'
+                }
+                requests.post(error_callback_url, json=payload, timeout=10)
+            except Exception as callback_error:
+                app.logger.error(f"Erreur callback échec: {callback_error}")
+        
+        raise e
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -173,8 +206,18 @@ def upload_video():
         hls_dir = os.path.join(HLS_FOLDER, user_id, video_id)
         os.makedirs(hls_dir, exist_ok=True)
         
+        success_callback_url = "https://pjtwnneriajuppezuqqs.supabase.co/functions/v1/update-lesson-conversion-status"
+        error_callback_url = "https://pjtwnneriajuppezuqqs.supabase.co/functions/v1/update-lesson-conversion-status"
+        
         # Lancer la tâche asynchrone
-        task = convert_to_hls.delay(file_path, hls_dir)
+        task = convert_to_hls.delay(
+            file_path, 
+            hls_dir, 
+            success_callback_url, 
+            error_callback_url, 
+            user_id, 
+            video_id
+        )
 
         # Renvoyer une réponse JSON
         return jsonify({
