@@ -134,6 +134,27 @@ def token_required_mobile(f):
         return f(*args, **kwargs)
     return decorated
 
+# Token verification decorator for downloads (no referrer, requires action=download or platform=download)
+def token_required_download(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = _get_token_from_request()
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 403
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            if not (data.get('action') == 'download' or data.get('platform') == 'download'):
+                raise Exception('Invalid action')
+            if 'user_id' in kwargs and data.get('user_id') != kwargs['user_id']:
+                raise Exception('Invalid user')
+            if 'filename' in kwargs and data.get('filename') != kwargs['filename']:
+                raise Exception('Invalid file')
+        except Exception as e:
+            print(f"Download token verification failed: {str(e)}")
+            return jsonify({'message': 'Token is invalid or expired'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
 @celery.task
 def convert_to_hls(input_path: str, hls_dir: str, success_callback_url=None, error_callback_url=None, user_id=None, video_id=None, encryption_key=None):
     output_path = os.path.join(hls_dir, 'output.m3u8')
@@ -267,6 +288,19 @@ def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY, platform='web
         payload['video_id'] = video_id
     return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
 
+# Generate a short-lived token for download access
+def generate_download_token(user_id, filename, duration=900):
+    payload = {
+        'user_id': user_id,
+        'filename': filename,
+        'exp': datetime.utcnow() + timedelta(seconds=duration),
+        'iat': datetime.utcnow(),
+        'jti': str(uuid.uuid4()),
+        'action': 'download',
+        'platform': 'download'
+    }
+    return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+
 @app.route('/api/get-video-token/<user_id>/<filename>')
 def get_video_token(user_id, filename):
     token = generate_video_token(user_id, filename)
@@ -297,6 +331,44 @@ def get_mobile_video_token(user_id, filename, video_id):
 @app.route('/api/get-video-token/mobile/<user_id>/<filename>/<video_id>', methods=['OPTIONS'])
 def preflight_mobile(user_id, filename, video_id):
     return jsonify({'message': 'Preflight OK'}), 200
+
+
+# Endpoint pour émettre un token de téléchargement
+@app.route('/api/get-download-token/<user_id>/<filename>')
+def get_download_token(user_id, filename):
+    try:
+        ttl = int(request.args.get('ttl', 900))
+    except Exception:
+        ttl = 900
+    token = generate_download_token(user_id, filename, duration=ttl)
+    return jsonify({
+        'token': token,
+        'expires_in': ttl,
+        'download_url': f"https://server.focustagency.com/api/download/{user_id}/{filename}"
+    })
+
+@app.route('/api/get-download-token/<user_id>/<filename>', methods=['OPTIONS'])
+def preflight_download_token(user_id, filename):
+    return jsonify({'message': 'Preflight OK'}), 200
+
+
+# Endpoint pour télécharger la vidéo originale (force attachment)
+@app.route('/api/download/<user_id>/<filename>')
+@token_required_download
+def download_video(user_id, filename):
+    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+    file_path = os.path.join(user_folder, filename)
+    if not os.path.exists(file_path):
+        return jsonify({'message': 'File not found'}), 404
+    try:
+        response = send_file(file_path, as_attachment=True)
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        app.logger.error(f"Download failed: {e}")
+        return jsonify({'message': 'Internal server error'}), 500
 
 
 @app.route('/videos-user/<user_id>/<filename>')
