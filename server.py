@@ -45,6 +45,12 @@ app.config['MESOMB_APP_KEY']="914d0452f4c8b7cf06e4c395d1c401012613bcb2"
 app.config['MESOMB_API_KEY']="7a5a5445-76ca-4631-8a2b-307a1561acac"
 app.config['MESOMB_API_SECRET']="642ffb65-912a-402e-adfc-fccb41a1107c"
 
+def _get_token_from_request():
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        return auth_header.split(' ', 1)[1].strip()
+    return request.args.get('token')
+
 def make_celery(app):
     celery = Celery(
         app.import_name,
@@ -63,7 +69,7 @@ celery = make_celery(app)
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.args.get('token')
+        token = _get_token_from_request()
         
         if not token:
             return jsonify({'message': 'Token is missing'}), 403
@@ -80,31 +86,51 @@ def token_required(f):
             if 'filename' in kwargs and data.get('filename') != kwargs['filename']:
                 raise Exception("Invalid file")
                 
-            # Check referrer
-            if request.referrer:
-                allowed_referrers = [
-                    r'https://focustagency\.com',
-                    r'https://trainer\.focustagency\.com',
-                    r'https://learner\.focustagency\.com',
-                    r'http://localhost:3000'
-                ]
-                
-                referrer_allowed = False
-                for pattern in allowed_referrers:
-                    if re.match(pattern, request.referrer):
-                        referrer_allowed = True
-                        break
-                
-                if not referrer_allowed:
-                    raise Exception("Invalid referrer")
-            else:
-                # Optional: Block requests with no referrer
-                raise Exception("No referrer")
+            # Check referrer: required for web tokens (platform != mobile)
+            if (data.get('platform') != 'mobile'):
+                if request.referrer:
+                    allowed_referrers = [
+                        r'https://focustagency\.com',
+                        r'https://trainer\.focustagency\.com',
+                        r'https://learner\.focustagency\.com',
+                        r'http://localhost:3000'
+                    ]
+                    referrer_allowed = False
+                    for pattern in allowed_referrers:
+                        if re.match(pattern, request.referrer):
+                            referrer_allowed = True
+                            break
+                    if not referrer_allowed:
+                        raise Exception("Invalid referrer")
+                else:
+                    raise Exception("No referrer")
                 
         except Exception as e:
             print(f"Token verification failed: {str(e)}")
             return jsonify({'message': 'Token is invalid or expired'}), 403
             
+        return f(*args, **kwargs)
+    return decorated
+
+# Token verification decorator for mobile apps (no referrer, requires platform=mobile)
+def token_required_mobile(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = _get_token_from_request()
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 403
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            if data.get('platform') != 'mobile':
+                raise Exception('Invalid platform')
+            if 'user_id' in kwargs and data.get('user_id') != kwargs['user_id']:
+                raise Exception('Invalid user')
+            # video_id binding when present
+            if 'video_id' in kwargs and data.get('video_id') and data.get('video_id') != kwargs['video_id']:
+                raise Exception('Invalid video')
+        except Exception as e:
+            print(f"Mobile token verification failed: {str(e)}")
+            return jsonify({'message': 'Token is invalid or expired'}), 403
         return f(*args, **kwargs)
     return decorated
 
@@ -124,7 +150,7 @@ def convert_to_hls(input_path: str, hls_dir: str, success_callback_url=None, err
         user_id = hls_dir.split(os.sep)[-2]
     if not video_id:
         video_id = hls_dir.split(os.sep)[-1]
-    key_url = f"https://server.focustagency.com/hls/{user_id}/{video_id}/enc.key"
+    key_url = f"https://server.focustagency.com/hls/{user_id}/{video_id}/key"
     
     with open(key_info_path, 'w') as key_info_file:
         key_info_file.write(f"{key_url}\n{key_path}\n")
@@ -228,14 +254,17 @@ def upload_video():
 
 
 # Generate a short-lived token for video access
-def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY):
+def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY, platform='web', video_id=None):
     payload = {
         'user_id': user_id,
         'filename': filename,
         'exp': datetime.utcnow() + timedelta(seconds=duration),
         'iat': datetime.utcnow(),
-        'jti': str(uuid.uuid4())
+        'jti': str(uuid.uuid4()),
+        'platform': platform
     }
+    if video_id:
+        payload['video_id'] = video_id
     return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
 
 @app.route('/api/get-video-token/<user_id>/<filename>')
@@ -248,6 +277,25 @@ def get_video_token(user_id, filename):
 
 @app.route('/api/get-video-token/<user_id>/<filename>', methods=['OPTIONS'])
 def preflight(user_id, filename):
+    return jsonify({'message': 'Preflight OK'}), 200
+
+
+# Endpoint pour émettre un token mobile (platform=mobile)
+@app.route('/api/get-video-token/mobile/<user_id>/<filename>/<video_id>')
+def get_mobile_video_token(user_id, filename, video_id):
+    try:
+        ttl = int(request.args.get('ttl', TOKEN_EXPIRY))
+    except Exception:
+        ttl = TOKEN_EXPIRY
+    token = generate_video_token(user_id, filename, duration=ttl, platform='mobile', video_id=video_id)
+    return jsonify({
+        'token': token,
+        'expires_in': ttl,
+        'playlist_url': f"https://server.focustagency.com/mobile/hls/{user_id}/{video_id}/output.m3u8"
+    })
+
+@app.route('/api/get-video-token/mobile/<user_id>/<filename>/<video_id>', methods=['OPTIONS'])
+def preflight_mobile(user_id, filename, video_id):
     return jsonify({'message': 'Preflight OK'}), 200
 
 
@@ -286,6 +334,67 @@ def serve_hls_playlist(user_id, video_id):
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     
+    return response
+
+
+# Routes dédiées au mobile
+@app.route('/mobile/hls/<user_id>/<video_id>/output.m3u8')
+@token_required_mobile
+def serve_mobile_hls_playlist(user_id, video_id):
+    hls_dir = os.path.join(HLS_FOLDER, user_id, video_id)
+    playlist_path = os.path.join(hls_dir, 'output.m3u8')
+    if not os.path.exists(playlist_path):
+        return jsonify({'message': 'Conversion in progress or failed'}), 404
+    try:
+        with open(playlist_path, 'r') as f:
+            content = f.read()
+        token = _get_token_from_request()
+        base = f"https://server.focustagency.com/mobile/hls/{user_id}/{video_id}"
+        lines = []
+        for line in content.splitlines():
+            if line.startswith('#EXT-X-KEY'):
+                line = re.sub(r'URI=\"[^\"]+\"', f'URI="{base}/key?token={token}"', line)
+                lines.append(line)
+            elif line.strip() and not line.startswith('#') and line.strip().endswith('.ts'):
+                seg = line.strip()
+                abs_url = f"{base}/{seg}?token={token}"
+                lines.append(abs_url)
+            else:
+                lines.append(line)
+        new_content = "\n".join(lines)
+        response = app.response_class(new_content, mimetype='application/x-mpegURL')
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        app.logger.error(f"Error rewriting mobile playlist: {e}")
+        return jsonify({'message': 'Internal server error'}), 500
+
+@app.route('/mobile/hls/<user_id>/<video_id>/<segment>')
+@token_required_mobile
+def serve_mobile_hls_segment(user_id, video_id, segment):
+    hls_dir = os.path.join(HLS_FOLDER, user_id, video_id)
+    segment_path = os.path.join(hls_dir, segment)
+    if not os.path.exists(segment_path):
+        return jsonify({'message': 'Segment not found'}), 404
+    response = send_file(segment_path)
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+@app.route('/mobile/hls/<user_id>/<video_id>/key')
+@token_required_mobile
+def serve_mobile_hls_key(user_id, video_id):
+    hls_dir = os.path.join(HLS_FOLDER, user_id, video_id)
+    key_path = os.path.join(hls_dir, 'enc.key')
+    if not os.path.exists(key_path):
+        return jsonify({'message': 'Encryption key not found'}), 404
+    response = send_file(key_path)
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     return response
 
 @app.route('/hls/<user_id>/<video_id>/<segment>')
