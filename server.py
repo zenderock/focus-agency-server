@@ -440,17 +440,18 @@ def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY, platform='web
     return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
 
 # Generate a short-lived token for hierarchical download (v2)
-def generate_download_token_v2(user_id: str, dtype: str, filename: str, duration: int = 900, rel: str | None = None, course_id: str | None = None, module_id: str | None = None):
+def generate_download_token_v2(user_id: str, dtype: str, filename: str | None, duration: int = 900, rel: str | None = None, course_id: str | None = None, module_id: str | None = None):
     payload = {
         'sub': 'download',
         'user_id': user_id,
         'type': dtype,
-        'filename': filename,
         'exp': datetime.utcnow() + timedelta(seconds=duration),
         'iat': datetime.utcnow(),
         'jti': str(uuid.uuid4()),
         'platform': 'download'
     }
+    if filename:
+        payload['filename'] = filename
     if dtype == 'lesson' and rel:
         payload['rel'] = rel
     if dtype in ('course', 'module'):
@@ -574,8 +575,11 @@ def get_download_token_v2():
     rel = request.args.get('rel')
     course_id = request.args.get('course_id')
     module_id = request.args.get('module_id')
-    if not user_id or not dtype or not filename:
-        return jsonify({'message': 'user_id, type, filename requis'}), 400
+    require_filename = app.config.get('DOWNLOAD_TOKEN_REQUIRE_FILENAME', True)
+    if not user_id or not dtype:
+        return jsonify({'message': 'user_id et type requis'}), 400
+    if require_filename and not filename:
+        return jsonify({'message': 'filename requis (flag DOWNLOAD_TOKEN_REQUIRE_FILENAME=true)'}), 400
     if dtype not in ('lesson', 'course', 'module'):
         return jsonify({'message': 'type invalide'}), 400
     if dtype == 'lesson' and not rel:
@@ -587,14 +591,24 @@ def get_download_token_v2():
 
     token = generate_download_token_v2(user_id, dtype, filename, duration=ttl, rel=rel, course_id=course_id, module_id=module_id)
 
+    response = {'token': token, 'expires_in': ttl}
     if dtype == 'lesson':
-        download_url = f"https://server.focustagency.com/download2/{rel}/{filename}"
+        if filename:
+            response['download_url'] = f"https://server.focustagency.com/download2/{rel}/{filename}"
+        else:
+            response['download_base_url'] = f"https://server.focustagency.com/download2/{rel}"
     elif dtype == 'course':
-        download_url = f"https://server.focustagency.com/download2/course/{course_id}/{filename}"
+        if filename:
+            response['download_url'] = f"https://server.focustagency.com/download2/course/{course_id}/{filename}"
+        else:
+            response['download_base_url'] = f"https://server.focustagency.com/download2/course/{course_id}"
     else:
-        download_url = f"https://server.focustagency.com/download2/module/{course_id}/{module_id}/{filename}"
+        if filename:
+            response['download_url'] = f"https://server.focustagency.com/download2/module/{course_id}/{module_id}/{filename}"
+        else:
+            response['download_base_url'] = f"https://server.focustagency.com/download2/module/{course_id}/{module_id}"
 
-    return jsonify({'token': token, 'expires_in': ttl, 'download_url': download_url})
+    return jsonify(response)
 
 @app.route('/api/get-video-token/v2', methods=['OPTIONS'])
 def preflight_get_video_token_v2():
