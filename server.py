@@ -385,7 +385,12 @@ def upload_lesson_video():
         return jsonify({'message': 'Champs requis manquants (trainer_id, course_id, module_id, lesson_id)'}), 400
     if not allowed_file(file.filename):
         return jsonify({'message': 'Type de fichier non autorisé'}), 400
-    uploads_path, originals_path, hls_dir, safe_name = _lesson_paths(trainer_id, course_id, module_id, lesson_id, file.filename)
+    # Appliquer la nomenclature: <lesson_id>_lesson<extension>
+    orig_name = secure_filename(file.filename)
+    _, ext = os.path.splitext(orig_name)
+    ext = ext.lower()
+    target_filename = f"{lesson_id}_lesson{ext}"
+    uploads_path, originals_path, hls_dir, safe_name = _lesson_paths(trainer_id, course_id, module_id, lesson_id, target_filename)
     os.makedirs(uploads_path, exist_ok=True)
     os.makedirs(originals_path, exist_ok=True)
     os.makedirs(hls_dir, exist_ok=True)
@@ -597,6 +602,15 @@ def get_download_token_v2():
             response['download_url'] = f"https://server.focustagency.com/download2/{rel}/{filename}"
         else:
             response['download_base_url'] = f"https://server.focustagency.com/download2/{rel}"
+            try:
+                folder = os.path.join(ORIGINALS_FOLDER, rel)
+                if os.path.isdir(folder):
+                    files = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+                    if len(files) == 1:
+                        _, ext = os.path.splitext(files[0])
+                        response['extension'] = ext.lower()
+            except Exception as _e:
+                pass
     elif dtype == 'course':
         if filename:
             response['download_url'] = f"https://server.focustagency.com/download2/course/{course_id}/{filename}"
