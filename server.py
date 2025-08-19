@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, abort, send_file, jsonify
 from flask_cors import CORS
 import os
+import shutil
 import subprocess
 import time
 import uuid
@@ -34,6 +35,7 @@ CORS(app,
 UPLOAD_FOLDER = 'uploads'
 HLS_FOLDER = 'hls'
 PRESENTATION_VIDEOS_FOLDER = 'presentation_videos'
+ORIGINALS_FOLDER = 'originals'
 
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'wmv', 'flv'}
 SECRET_KEY = 'ntA4{Q6NLb?fRgs|]U^MV.u@d,m44IF(AFLm]-4=P-[gC5<u8_PvwYt-*.+Rgop_[www.zenderock.me]'
@@ -248,6 +250,15 @@ def upload_video():
         file_path = os.path.join(user_folder, filename)
         file.save(file_path)
 
+        # Conserver une copie originale pour le téléchargement
+        originals_user_folder = os.path.join(ORIGINALS_FOLDER, user_id)
+        os.makedirs(originals_user_folder, exist_ok=True)
+        original_path = os.path.join(originals_user_folder, filename)
+        try:
+            shutil.copy2(file_path, original_path)
+        except Exception as e:
+            app.logger.error(f"Échec copie original: {e}")
+
         # Définir le dossier HLS
         video_id = filename.split('.')[0]  # Utiliser le nom du fichier sans extension comme video_id
         hls_dir = os.path.join(HLS_FOLDER, user_id, video_id)
@@ -270,6 +281,7 @@ def upload_video():
         return jsonify({
             'message': 'Conversion en cours',
             'task_id': task.id,
+            'video_id': video_id,
             'hls_path': f"/hls/{user_id}/{video_id}/output.m3u8"
         }), 202
 
@@ -356,7 +368,7 @@ def preflight_download_token(user_id, filename):
 @app.route('/api/download/<user_id>/<filename>')
 @token_required_download
 def download_video(user_id, filename):
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+    user_folder = os.path.join(ORIGINALS_FOLDER, user_id)
     file_path = os.path.join(user_folder, filename)
     if not os.path.exists(file_path):
         return jsonify({'message': 'File not found'}), 404
@@ -531,4 +543,5 @@ if __name__ == '__main__':
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(HLS_FOLDER, exist_ok=True)
     os.makedirs(PRESENTATION_VIDEOS_FOLDER, exist_ok=True)
+    os.makedirs(ORIGINALS_FOLDER, exist_ok=True)
     app.run(debug=True, host='0.0.0.0', port=5000)
