@@ -58,6 +58,7 @@ _load_env_from_file()
 SECRET_KEY = os.getenv('SECRET_KEY', 'CHANGE_ME_DEV_SECRET')
 TOKEN_EXPIRY = int(os.getenv('TOKEN_EXPIRY', '3600'))
 CALLBACK_BEARER = os.getenv('CALLBACK_BEARER', '')
+DOWNLOAD_TOKEN_REQUIRE_FILENAME = os.getenv('DOWNLOAD_TOKEN_REQUIRE_FILENAME', 'false').lower() == 'true'
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
@@ -65,6 +66,7 @@ app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MESOMB_APP_KEY'] = os.getenv('MESOMB_APP_KEY', '')
 app.config['MESOMB_API_KEY'] = os.getenv('MESOMB_API_KEY', '')
 app.config['MESOMB_API_SECRET'] = os.getenv('MESOMB_API_SECRET', '')
+app.config['DOWNLOAD_TOKEN_REQUIRE_FILENAME'] = DOWNLOAD_TOKEN_REQUIRE_FILENAME
 
 # CORS origins from env or defaults
 _env_origins = os.getenv('FOCUST_ALLOWED_ORIGINS', '').strip()
@@ -188,8 +190,10 @@ def token_required_download(f):
                 raise Exception('Invalid action')
             if 'user_id' in kwargs and data.get('user_id') != kwargs['user_id']:
                 raise Exception('Invalid user')
-            if 'filename' in kwargs and data.get('filename') != kwargs['filename']:
-                raise Exception('Invalid file')
+            # Vérification optionnelle du filename selon flag DOWNLOAD_TOKEN_REQUIRE_FILENAME
+            if app.config.get('DOWNLOAD_TOKEN_REQUIRE_FILENAME', True):
+                if 'filename' in kwargs and data.get('filename') != kwargs['filename']:
+                    raise Exception('Invalid file')
             # Vérification hiérarchique v2 si présente
             if 'rel' in kwargs and data.get('rel') and data.get('rel') != kwargs['rel']:
                 raise Exception('Invalid rel')
