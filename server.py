@@ -190,6 +190,15 @@ def token_required_download(f):
                 raise Exception('Invalid user')
             if 'filename' in kwargs and data.get('filename') != kwargs['filename']:
                 raise Exception('Invalid file')
+            # Vérification hiérarchique v2 si présente
+            if 'rel' in kwargs and data.get('rel') and data.get('rel') != kwargs['rel']:
+                raise Exception('Invalid rel')
+            if 'dtype' in kwargs and data.get('type') and data.get('type') != kwargs['dtype']:
+                raise Exception('Invalid type')
+            if 'course_id' in kwargs and data.get('course_id') and data.get('course_id') != kwargs['course_id']:
+                raise Exception('Invalid course_id')
+            if 'module_id' in kwargs and data.get('module_id') and data.get('module_id') != kwargs['module_id']:
+                raise Exception('Invalid module_id')
         except Exception as e:
             print(f"Download token verification failed: {str(e)}")
             return jsonify({'message': 'Token is invalid or expired'}), 403
@@ -426,6 +435,27 @@ def generate_video_token(user_id, filename, duration=TOKEN_EXPIRY, platform='web
         payload['video_id'] = video_id
     return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
 
+# Generate a short-lived token for hierarchical download (v2)
+def generate_download_token_v2(user_id: str, dtype: str, filename: str, duration: int = 900, rel: str | None = None, course_id: str | None = None, module_id: str | None = None):
+    payload = {
+        'sub': 'download',
+        'user_id': user_id,
+        'type': dtype,
+        'filename': filename,
+        'exp': datetime.utcnow() + timedelta(seconds=duration),
+        'iat': datetime.utcnow(),
+        'jti': str(uuid.uuid4()),
+        'platform': 'download'
+    }
+    if dtype == 'lesson' and rel:
+        payload['rel'] = rel
+    if dtype in ('course', 'module'):
+        if course_id:
+            payload['course_id'] = course_id
+        if module_id and dtype == 'module':
+            payload['module_id'] = module_id
+    return jwt.encode(payload, app.config['SECRET_KEY'], algorithm='HS256')
+
 # Generate a short-lived token for hierarchical HLS v2 access
 def generate_video_token_v2(user_id, rel, duration=TOKEN_EXPIRY, platform='web'):
     payload = {
@@ -527,8 +557,48 @@ def get_video_token_v2():
         'playlist_url': playlist_url
     })
 
+# Endpoint pour émettre un token de téléchargement v2 (hiérarchique)
+@app.route('/api/get-download-token/v2')
+def get_download_token_v2():
+    try:
+        ttl = int(request.args.get('ttl', 900))
+    except Exception:
+        ttl = 900
+    user_id = request.args.get('user_id')
+    dtype = request.args.get('type')  # 'lesson' | 'course' | 'module'
+    filename = request.args.get('filename')
+    rel = request.args.get('rel')
+    course_id = request.args.get('course_id')
+    module_id = request.args.get('module_id')
+    if not user_id or not dtype or not filename:
+        return jsonify({'message': 'user_id, type, filename requis'}), 400
+    if dtype not in ('lesson', 'course', 'module'):
+        return jsonify({'message': 'type invalide'}), 400
+    if dtype == 'lesson' and not rel:
+        return jsonify({'message': 'rel requis pour type=lesson'}), 400
+    if dtype == 'course' and not course_id:
+        return jsonify({'message': 'course_id requis pour type=course'}), 400
+    if dtype == 'module' and (not course_id or not module_id):
+        return jsonify({'message': 'course_id et module_id requis pour type=module'}), 400
+
+    token = generate_download_token_v2(user_id, dtype, filename, duration=ttl, rel=rel, course_id=course_id, module_id=module_id)
+
+    if dtype == 'lesson':
+        download_url = f"https://server.focustagency.com/download2/{rel}/{filename}"
+    elif dtype == 'course':
+        download_url = f"https://server.focustagency.com/download2/course/{course_id}/{filename}"
+    else:
+        download_url = f"https://server.focustagency.com/download2/module/{course_id}/{module_id}/{filename}"
+
+    return jsonify({'token': token, 'expires_in': ttl, 'download_url': download_url})
+
 @app.route('/api/get-video-token/v2', methods=['OPTIONS'])
 def preflight_get_video_token_v2():
+    return jsonify({'message': 'Preflight OK'}), 200
+
+# Preflight pour download-token v2
+@app.route('/api/get-download-token/v2', methods=['OPTIONS'])
+def preflight_get_download_token_v2():
     return jsonify({'message': 'Preflight OK'}), 200
 
 
@@ -548,6 +618,60 @@ def download_video(user_id, filename):
         return response
     except Exception as e:
         app.logger.error(f"Download failed: {e}")
+        return jsonify({'message': 'Internal server error'}), 500
+
+# Téléchargement hiérarchique v2 — Leçon (original)
+@app.route('/download2/<path:rel>/<filename>')
+@token_required_download
+def download2_lesson(rel, filename):
+    base = os.path.join(ORIGINALS_FOLDER, rel)
+    file_path = os.path.join(base, filename)
+    if not os.path.isfile(file_path):
+        return jsonify({'message': 'File not found'}), 404
+    try:
+        response = send_file(file_path, as_attachment=True)
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        app.logger.error(f"Download2 lesson failed: {e}")
+        return jsonify({'message': 'Internal server error'}), 500
+
+# Téléchargement hiérarchique v2 — Présentation Formation
+@app.route('/download2/course/<course_id>/<filename>')
+@token_required_download
+def download2_course(course_id, filename):
+    folder = os.path.join(PRESENTATION_VIDEOS_FOLDER, COURSE_PRESENTATION_SUBFOLDER, secure_filename(course_id))
+    file_path = os.path.join(folder, filename)
+    if not os.path.isfile(file_path):
+        return jsonify({'message': 'File not found'}), 404
+    try:
+        response = send_file(file_path, as_attachment=True)
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        app.logger.error(f"Download2 course failed: {e}")
+        return jsonify({'message': 'Internal server error'}), 500
+
+# Téléchargement hiérarchique v2 — Présentation Module
+@app.route('/download2/module/<course_id>/<module_id>/<filename>')
+@token_required_download
+def download2_module(course_id, module_id, filename):
+    folder = os.path.join(PRESENTATION_VIDEOS_FOLDER, MODULE_PRESENTATION_SUBFOLDER, secure_filename(course_id), secure_filename(module_id))
+    file_path = os.path.join(folder, filename)
+    if not os.path.isfile(file_path):
+        return jsonify({'message': 'File not found'}), 404
+    try:
+        response = send_file(file_path, as_attachment=True)
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        app.logger.error(f"Download2 module failed: {e}")
         return jsonify({'message': 'Internal server error'}), 500
 
 

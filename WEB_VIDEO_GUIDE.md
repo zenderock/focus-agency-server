@@ -81,15 +81,29 @@ Bonnes pratiques UI (Next.js):
 
 ---
 
-## 6) Téléchargement de l’original (optionnel)
+## 6) Téléchargements v2 (alignés hiérarchiquement)
 
-- __Émission du token de téléchargement__:
-  - `GET /api/get-download-token/<user_id>/<filename>?ttl=900`
-  - réponse: `token`, `download_url`
-- __Téléchargement__:
-  - `GET /api/download/<user_id>/<filename>` avec `Authorization: Bearer <token>`
+- __Émission token download v2__:
+  - `GET /api/get-download-token/v2`
+  - Query:
+    - `type`: `lesson` | `course` | `module`
+    - `user_id`: ID du propriétaire/autorisé
+    - `filename`: nom de fichier à télécharger
+    - `rel` (si type=lesson): `trainer_id/course_id/module_id/lesson_id`
+    - `course_id` (si type=course ou module)
+    - `module_id` (si type=module)
+    - `ttl` (optionnel, défaut 900)
+  - Réponse: `token`, `expires_in`, `download_url`
 
-Note: Protégez l’émission du token de download côté backend (auth utilisateur/eligibilité).
+- __Téléchargement__ (avec `Authorization: Bearer <token>`) :
+  - Leçon (original): `GET /download2/<rel>/<filename>`
+  - Présentation formation: `GET /download2/course/<course_id>/<filename>`
+  - Présentation module: `GET /download2/module/<course_id>/<module_id>/<filename>`
+
+Notes sécurité:
+- Le token v2 contient des claims liés au chemin (`rel`) et au fichier (`filename`).
+- TTL court recommandé (5–15 min) et contrôle d’éligibilité côté backend avant émission.
+- Les anciennes routes `/api/get-download-token/<user_id>/<filename>` et `/api/download/<user_id>/<filename>` sont dépréciées.
 
 ---
 
